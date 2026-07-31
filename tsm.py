@@ -88,7 +88,7 @@ def cmd_init(args) -> int:
     else:
         print("  too few chapters to derive tolerances — built-in fallbacks will be used")
 
-    print(rule("4/4  scaffolding"))
+    print(rule("4/5  scaffolding"))
     for src, dst in (("GLOSSARY.template.md", "GLOSSARY.md"),
                      ("STYLEGUIDE.template.md", "STYLEGUIDE.md")):
         target = project / dst
@@ -98,22 +98,32 @@ def cmd_init(args) -> int:
             shutil.copy(TEMPLATES / src, target)
             print(f"  {dst} created")
 
+    print(rule("5/5  detecting the cast"))
+    code, out = run("detect_cast.py", str(ref_text), "--profile", str(project / "profile.json"),
+                    "--append", str(project / "GLOSSARY.md"), "--top", "30")
+    print("\n".join(out.rstrip().split("\n")[:12]))
+    if code:
+        print("  (cast detection failed — fill the Characters section by hand)")
+
     print(f"""
 {'═' * 70}
 Project ready: {project}
 
-What the tool settled by counting:  profile.json
+Settled by counting:  profile.json, and the cast in GLOSSARY.md
 What still needs you:
 
   1. STYLEGUIDE.md — register and voice. Read the corpus and fill it in.
      This is the axis no script reaches and the one that decides whether a
-     draft passes as the same hand.
+     draft passes as the same hand. Leave it empty and the voice reviewers
+     will correctly refuse to report anything.
 
-  2. GLOSSARY.md — names and coined terms. Build candidates with:
+  2. GLOSSARY.md — the detected cast is marked REVIEW. Confirm each name
+     against the corpus, then add coined terms:
        python scripts/build_glossary.py --source <src> --target {ref_text} --out cand.md
-     Then verify each against the corpus before inventing anything.
 
-Then:  python tsm.py check --project {project} --draft <your draft>
+Then:
+  python tsm.py check  --project {project} --draft <draft>
+  python tsm.py review --project {project} --draft <draft>
 {'═' * 70}""")
     return 0
 
@@ -215,6 +225,37 @@ def cmd_check(args) -> int:
 # --------------------------------------------------------------------------
 
 
+def cmd_review(args) -> int:
+    project: Path = args.project
+    if not (project / "profile.json").exists():
+        print(f"error: {project} is not a project — run `init` first", file=sys.stderr)
+        return 2
+
+    print(rule("writing reviewer prompts"))
+    code, out = run("make_reviews.py", "--project", str(project), "--draft", str(args.draft),
+                    "--out", str(project / "reviews"), "--max-voices", str(args.max_voices))
+    print(out.rstrip())
+    if code:
+        return code
+
+    print(f"""
+{'═' * 70}
+Each prompt is self-contained. Run them in **separate sessions** — reviewers
+sharing a context inherit each other's blind spots, which is the whole
+reason for using several.
+
+Before trusting the results, run the same prompts against a chapter of the
+reference translation. Every finding there is a false positive by
+construction, and the volume tells you which briefs over-fire.
+
+Merging instructions: {project / 'reviews' / '_aggregate.md'}
+{'═' * 70}""")
+    return 0
+
+
+# --------------------------------------------------------------------------
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -229,6 +270,12 @@ def main() -> int:
     c.add_argument("--draft", type=Path, required=True)
     c.add_argument("--glob", default="*.txt", help="draft file pattern for delta/fingerprint")
     c.set_defaults(fn=cmd_check)
+
+    r = sub.add_parser("review", help="write reviewer prompts for the axes no script reaches")
+    r.add_argument("--project", type=Path, required=True)
+    r.add_argument("--draft", type=Path, required=True)
+    r.add_argument("--max-voices", type=int, default=8)
+    r.set_defaults(fn=cmd_review)
 
     args = ap.parse_args()
     return args.fn(args)

@@ -51,6 +51,37 @@ goes where it actually decides the outcome — voice.
 
 ---
 
+## Two commands
+
+```bash
+python tsm.py init   --reference book1.epub --project myproject/
+python tsm.py check  --project myproject/ --draft draft/
+python tsm.py review --project myproject/ --draft draft/
+```
+
+`init` extracts the reference, detects everything countable, derives
+tolerances from the corpus's own chapter variation, finds the cast, and
+scaffolds the glossary and style guide.
+
+`check` runs every measurement and writes one report.
+
+`review` writes self-contained prompts for the axes no script reaches — one
+per character voice, plus calques, verse, glossary drift and narration.
+
+What `init` settles unaided, with its counts recorded as evidence: script,
+dialogue marker, quote characters, ellipsis form, foreign-token allowlist,
+and the recurring cast. On a real novel it picked the en dash from 5435
+occurrences against 110 guillemets, determined that quotes are not used in
+speech (1.3% of dialogue paragraphs), built a 34-word French allowlist, and
+found 30 speakers from dialogue tags alone.
+
+What it cannot settle, and says so: register, voice, neologism formation.
+Leave the style guide empty and the voice reviewers will refuse to report
+rather than invent findings.
+
+The scripts in `scripts/` remain usable on their own; `tsm.py` only spares
+you the flags.
+
 ## Workflow
 
 **1. Profile.** Convert the reference translation to plain text, measure it,
@@ -119,6 +150,9 @@ Three rules make this worth doing rather than expensive:
 | `lint.py` | dash characters, quotes in speech, mixed-script words, unreviewed foreign tokens, glossary violations, typography |
 | `fingerprint.py` | dialogue density, sentence length and variance, punctuation rates, foreign-token density, lexical variety — and a diff against a reference |
 | `split_dialogue.py` | groups speech by speaker so each reviewer reads one voice, not the whole book; also generates the blind attribution test |
+| `detect_profile.py` | reads the reference and writes `profile.json` from what it counts, with the counts kept as evidence |
+| `detect_cast.py` | finds the recurring cast from dialogue tags — a name in the narration half of a speech paragraph is almost always a speaker, in any language |
+| `make_reviews.py` | writes self-contained reviewer prompts from the project's own data |
 | `delta.py` | Burrows's Delta over function-word frequencies — whether the text reads as the same hand at all |
 | `inject_faults.py` | plants known defects and scores what the checker caught — recall, the half that calibration does not measure |
 
@@ -134,7 +168,14 @@ reading pass to confirm.
 Speaker attribution in `split_dialogue.py` is heuristic: it reads the
 narration tag for a known name and sends anything it cannot settle to
 `_unattributed.txt` with surrounding context, for a person to assign. The
-attribution rate measures the script, not the prose.
+attribution rate measures the script, not the prose — on real novel prose it
+runs around 40%, against 80% on clean synthetic text.
+
+Name matching is literal substring matching, which handles suffixing
+languages by accident rather than by design: an inflected form usually
+contains the nominative as a prefix, so it matches, but stem alternations
+break it and inflected variants can register as separate speakers. Proper
+morphological handling is an open contribution.
 
 ---
 
