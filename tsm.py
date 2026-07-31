@@ -225,6 +225,136 @@ def cmd_check(args) -> int:
 # --------------------------------------------------------------------------
 
 
+ENGINES = {
+    # name: (executable, argv builder taking the prompt file)
+    "claude": lambda p: ["claude", "-p", "--permission-mode", "bypassPermissions"],
+    "ollama": lambda p: ["ollama", "run", "llama3.1"],
+}
+
+
+def execute_prompt(engine: str, prompt_file: Path, out_file: Path) -> tuple[int, str]:
+    """Pipe a prompt through a locally installed CLI. No API keys, no SDK."""
+    exe = shutil.which(engine)
+    if not exe:
+        return 2, f"{engine} not found on PATH"
+    argv = ENGINES[engine](prompt_file)
+    argv[0] = exe
+    prompt = prompt_file.read_text(encoding="utf-8")
+    try:
+        proc = subprocess.run(argv, input=prompt, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=1800)
+    except subprocess.TimeoutExpired:
+        return 2, "timed out after 30 minutes"
+    if proc.returncode:
+        return proc.returncode, (proc.stderr or proc.stdout or "").strip()[:2000]
+    text = (proc.stdout or "").strip()
+    if not text:
+        return 2, "engine returned nothing"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text(text, encoding="utf-8")
+    return 0, text
+
+
+def cmd_translate(args) -> int:
+    project: Path = args.project
+    if not (project / "profile.json").exists():
+        print(f"error: {project} is not a project — run `init` first", file=sys.stderr)
+        return 2
+
+    suffix = "-repair" if args.draft else ""
+    out = args.out or (project / "prompts" / f"{args.source.stem}{suffix}.md")
+    cmd = ["--project", str(project), "--source", str(args.source), "--out", str(out)]
+
+    if args.lang:
+        target = HERE / "references" / "targets" / f"{args.lang}.md"
+        if target.exists():
+            cmd += ["--target-file", str(target)]
+        else:
+            available = sorted(p.stem for p in (HERE / "references" / "targets").glob("*.md")
+                               if not p.stem.startswith("_"))
+            print(f"note: no reference file for {args.lang!r}. Available: {', '.join(available)}")
+
+    if args.draft:
+        cmd += ["--draft", str(args.draft)]
+        lint = project / "lint.txt"
+        code, lint_out = run("lint.py", str(args.draft), "--profile", str(project / "profile.json"),
+                             "--glossary", str(project / "GLOSSARY.md"), "--level", "warning",
+                             "--glob", "*")
+        lint.write_text(lint_out, encoding="utf-8")
+        cmd += ["--lint", str(lint)]
+
+    print(rule("repair prompt" if args.draft else "translation prompt"))
+    code, output = run("make_translation.py", *cmd)
+    print(output.rstrip())
+    if code:
+        return code
+
+    if not args.execute:
+        print(f"""
+{'═' * 70}
+The prompt carries what the project measured: typography, the canonical
+terms this passage actually needs, and the register profiles.
+
+Round trip:
+  1. hand {out.name} to a translator or model
+     (or rerun with --execute to pipe it through a local CLI)
+  2. save the result
+  3. python tsm.py check --project {project} --draft <result>
+  4. if it fails, rerun with --draft <result> for a repair prompt
+     targeting only what broke
+{'═' * 70}""")
+        return 0
+
+    # -- execute -----------------------------------------------------------
+    engine = args.engine or next((e for e in ENGINES if shutil.which(e)), None)
+    if not engine:
+        print(f"error: no engine found. Install one of: {', '.join(ENGINES)}, "
+              f"or drop --execute and hand the prompt over yourself", file=sys.stderr)
+        return 2
+
+    result = project / "output" / f"{args.source.stem}.md"
+    print(rule(f"running through {engine}"))
+    print(f"  this may take a while for a long passage")
+    code, text = execute_prompt(engine, out, result)
+    if code:
+        print(f"  failed: {text}", file=sys.stderr)
+        print(f"\n  the prompt is still at {out} — hand it over manually")
+        return code
+    print(f"  {len(text):,} chars -> {result}")
+
+    # -- check what came back ---------------------------------------------
+    print(rule("checking the result"))
+    code, lint_out = run("lint.py", str(result), "--profile", str(project / "profile.json"),
+                         "--glossary", str(project / "GLOSSARY.md"), "--level", "warning",
+                         "--glob", "*")
+    (project / "lint.txt").write_text(lint_out, encoding="utf-8")
+    tail = lint_out.strip().split("\n")
+    print("\n".join(tail[-4:]))
+
+    print(f"\n{'═' * 70}")
+    if code == 1:
+        print(f"""Mechanical defects found. Build a repair prompt targeting only
+what broke:
+
+  python tsm.py translate --project {project} \\
+      --source {args.source} --draft {result} --execute
+""")
+    else:
+        print("No mechanical defects.")
+    print(f"""Still unmeasured: register, voice, calques, verse. Those need reading:
+
+  python tsm.py review --project {project} --draft {result.parent}
+
+A clean lint means the typography and terms are right. It says nothing
+about whether the voice matches — that is the axis that decides it, and no
+script reaches it.
+{'═' * 70}""")
+    return 0
+
+
+# --------------------------------------------------------------------------
+
+
 def cmd_review(args) -> int:
     project: Path = args.project
     if not (project / "profile.json").exists():
@@ -276,6 +406,17 @@ def main() -> int:
     r.add_argument("--draft", type=Path, required=True)
     r.add_argument("--max-voices", type=int, default=8)
     r.set_defaults(fn=cmd_review)
+
+    t = sub.add_parser("translate", help="build a translation prompt carrying the project's conventions")
+    t.add_argument("--project", type=Path, required=True)
+    t.add_argument("--source", type=Path, required=True, help="source-language passage")
+    t.add_argument("--out", type=Path, help="defaults to <project>/prompts/<name>.md")
+    t.add_argument("--lang", help="target language code, to include references/targets/<lang>.md")
+    t.add_argument("--draft", type=Path, help="existing draft — builds a repair prompt instead")
+    t.add_argument("--execute", action="store_true",
+                   help="pipe the prompt through a local CLI and check what comes back")
+    t.add_argument("--engine", choices=sorted(ENGINES), help="which CLI (default: first found)")
+    t.set_defaults(fn=cmd_translate)
 
     args = ap.parse_args()
     return args.fn(args)
