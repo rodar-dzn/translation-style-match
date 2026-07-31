@@ -59,6 +59,9 @@ def main() -> int:
     ap.add_argument("--glob", default="*.txt")
     ap.add_argument("--top", type=int, default=30, help="cast size to report (default 30)")
     ap.add_argument("--min-count", type=int, default=5, help="ignore names rarer than this")
+    ap.add_argument("--lowercase-ratio", type=float, default=0.35,
+                    help="reject a candidate written lowercase more than this share of the "
+                         "time — pronouns and titles are, names are not")
     ap.add_argument("--out", type=Path, help="write a glossary table here")
     ap.add_argument("--append", type=Path, help="append rows to an existing GLOSSARY.md")
     args = ap.parse_args()
@@ -79,14 +82,19 @@ def main() -> int:
 
     in_tags: Counter[str] = Counter()
     anywhere: Counter[str] = Counter()
+    lowercase: Counter[str] = Counter()
     dialogue_paragraphs = 0
 
     for f in files:
         text = f.read_text(encoding="utf-8", errors="replace")
         for par in (p.strip() for p in re.split(r"\n\s*\n|\n", text) if p.strip()):
             for m in CAP.finditer(par):
-                if is_upper(m.group(1)) and not SENTENCE_START.search(par[: m.start()][-3:]):
-                    anywhere[m.group(1)] += 1
+                w = m.group(1)
+                if is_upper(w):
+                    if not SENTENCE_START.search(par[: m.start()][-3:]):
+                        anywhere[w] += 1
+                else:
+                    lowercase[w.lower()] += 1
             if not par.startswith(marker):
                 continue
             dialogue_paragraphs += 1
@@ -100,15 +108,40 @@ def main() -> int:
         print("no names found in dialogue tags — check that the marker is right", file=sys.stderr)
         return 1
 
-    # A speaker is a name that turns up in tags disproportionately often.
-    cast = []
-    for name, tag_count in in_tags.most_common(args.top * 4):
+    # A speaker is a name that turns up in tags disproportionately often, and
+    # that is essentially never written lowercase. The second test is what
+    # separates names from pronouns and titles: a pronoun appears capitalized
+    # at the start of sentences and lowercase everywhere else, so its
+    # lowercase count dwarfs its capitalized one.
+    candidates = []
+    for name, tag_count in in_tags.most_common(args.top * 6):
         if tag_count < args.min_count:
             continue
+        lower = lowercase.get(name.lower(), 0)
         total = anywhere.get(name, tag_count)
-        cast.append((name, tag_count, total, tag_count / total if total else 0))
-    cast.sort(key=lambda r: -r[1])
-    cast = cast[: args.top]
+        if lower > total * args.lowercase_ratio:
+            continue
+        candidates.append([name, tag_count, total])
+
+    # Inflected forms of one name are one character, not several. Where a
+    # shorter candidate is a prefix of a longer one, fold the longer into it —
+    # otherwise a genitive registers as a separate, minor speaker.
+    candidates.sort(key=lambda r: len(r[0]))
+    merged: list[list] = []
+    for cand in candidates:
+        stem_match = next(
+            (m for m in merged
+             if cand[0].lower().startswith(m[0].lower()) and len(cand[0]) - len(m[0]) <= 3),
+            None,
+        )
+        if stem_match:
+            stem_match[1] += cand[1]
+            stem_match[2] += cand[2]
+        else:
+            merged.append(cand)
+
+    merged.sort(key=lambda r: -r[1])
+    cast = [(n, t, a, t / a if a else 0) for n, t, a in merged[: args.top]]
 
     rows = ["| Source | Canonical | Reject | Status | Citation / pattern |",
             "|---|---|---|---|---|"]

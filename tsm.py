@@ -98,12 +98,27 @@ def cmd_init(args) -> int:
             shutil.copy(TEMPLATES / src, target)
             print(f"  {dst} created")
 
-    print(rule("5/5  detecting the cast"))
+    print(rule("5/6  detecting the cast"))
     code, out = run("detect_cast.py", str(ref_text), "--profile", str(project / "profile.json"),
                     "--append", str(project / "GLOSSARY.md"), "--top", "30")
     print("\n".join(out.rstrip().split("\n")[:12]))
     if code:
         print("  (cast detection failed — fill the Characters section by hand)")
+        return 0
+
+    # Voice profiles must be measured on the reference, never on a draft:
+    # the point is to record what the canon does, so a draft can be held to it.
+    print(rule("6/6  measuring the voices"))
+    code, out = run("split_dialogue.py", str(ref_text), "--profile", str(project / "profile.json"),
+                    "--glossary", str(project / "GLOSSARY.md"),
+                    "--out", str(project / "reference-voices"), "--glob", "*.txt", "--blind", "80")
+    print("  " + out.strip().split("\n")[1] if len(out.strip().split("\n")) > 1 else out.strip())
+    if code == 0:
+        shutil.rmtree(project / "voices", ignore_errors=True)
+        shutil.copytree(project / "reference-voices", project / "voices")
+        code, out = run("profile_voices.py", "--project", str(project))
+        shutil.rmtree(project / "voices", ignore_errors=True)
+        print("\n".join(out.rstrip().split("\n")[2:]))
 
     print(f"""
 {'═' * 70}
