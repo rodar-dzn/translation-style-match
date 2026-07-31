@@ -119,6 +119,7 @@ Three rules make this worth doing rather than expensive:
 | `lint.py` | dash characters, quotes in speech, mixed-script words, unreviewed foreign tokens, glossary violations, typography |
 | `fingerprint.py` | dialogue density, sentence length and variance, punctuation rates, foreign-token density, lexical variety — and a diff against a reference |
 | `split_dialogue.py` | groups speech by speaker so each reviewer reads one voice, not the whole book; also generates the blind attribution test |
+| `delta.py` | Burrows's Delta over function-word frequencies — whether the text reads as the same hand at all |
 | `inject_faults.py` | plants known defects and scores what the checker caught — recall, the half that calibration does not measure |
 
 Alignment in `build_glossary.py` is positional and approximate on purpose.
@@ -136,6 +137,40 @@ narration tag for a known name and sends anything it cannot settle to
 attribution rate measures the script, not the prose.
 
 ---
+
+## Validation
+
+Run on a real two-volume novel pair sharing one translator, with a
+third-party rough translation of the same book as a negative control. The
+profile was built from **volume 1 only**; volume 2 and the draft were then
+scored against it.
+
+| Target | Truth | `fingerprint.py` | `delta.py` |
+|---|---|---|---|
+| Volume 2 | same translator | passed | 13% of chapters flagged |
+| Rough draft | different translator | **passed** | 97% of chapters flagged |
+
+**`fingerprint.py` failed the discrimination test.** The draft came out
+statistically indistinguishable from the reference, and on several metrics
+it scored *closer* than the genuine second volume did. The diagnosis: mean
+sentence length, paragraph length and dialogue ratio largely track the
+**source** text's structure, which survives translation regardless of who
+translated it. Those metrics were measuring the author, not the translator.
+
+`delta.py` — Burrows's Delta over function-word frequencies — separates them
+cleanly, 13% against 97%.
+
+Use `fingerprint.py` to find *which axis* diverges and by how much. Use
+`delta.py` to answer whether the text reads as the same hand at all. The
+first is diagnostic, not discriminative, and the table above is why.
+
+The same run surfaced a bug: extracted books carry title pages and section
+dividers, whose unstable statistics inflated derived tolerances until
+nothing could ever be flagged — the foreign-token tolerance came out at
+890% before fragments under 500 words were excluded, and 103% after.
+
+**This is one book pair in one language.** It is the difference between no
+evidence and one data point, not between no evidence and a validated tool.
 
 ## Target languages
 

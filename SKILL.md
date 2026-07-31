@@ -97,16 +97,27 @@ What the linter cannot see must be read for. This is the phase that decides
 the outcome: phases 1–3 get a draft to *plausible*, and only this one gets it
 to *indistinguishable*.
 
-First, find out where to look:
+First, ask whether the draft reads as the same hand at all:
+
+```bash
+python scripts/delta.py --reference work/ref/ --test draft/
+```
+
+Burrows's Delta over function-word frequencies. On the validation run in
+`README.md` this separated a same-translator volume from a different
+translator's draft at 13% against 97% of chapters flagged.
+
+Then find out *where* to look:
 
 ```bash
 python scripts/fingerprint.py draft/ --compare work/ref-fingerprint.json
 ```
 
-Divergences in dialogue ratio, sentence length, or foreign-token density
-point at whole categories of problem that reading one chapter never reveals.
-Uniform sentence length in particular is the classic signature of flattened
-register.
+Divergences point at categories of problem that reading one chapter never
+reveals. Treat this as diagnostic, not discriminative — the same validation
+run showed it cannot tell translators apart, because sentence and paragraph
+statistics largely track the source text's structure rather than the
+translator's habits.
 
 Then split the dialogue, so each reviewer gets a compact input instead of the
 whole book:

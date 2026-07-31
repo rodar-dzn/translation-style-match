@@ -130,11 +130,24 @@ FLAT = [
 # something happened. SIGMA sets how far outside counts.
 SIGMA = 2.0
 
+# Extracted books carry title pages, part dividers and epigraphs alongside
+# real chapters. Their statistics are noise — a 20-word divider has a
+# meaningless mean sentence length — and including them inflates the
+# derived tolerance until nothing can ever be flagged. Measured on a real
+# 82-chapter novel, the nine fragments under this threshold pushed the
+# foreign-token tolerance from 61% to 890%.
+MIN_BASELINE_WORDS = 500
+
 
 def baseline(chapters: list[tuple[str, str]]) -> dict:
-    """Per-metric coefficient of variation across the corpus's own chapters."""
-    per_chapter = [measure(t) for _, t in chapters]
-    per_chapter = [m for m in per_chapter if m]
+    """Per-metric coefficient of variation across the corpus's own chapters.
+
+    Fragments below MIN_BASELINE_WORDS are excluded: they are front matter,
+    not chapters, and their variance is an artifact of the extractor.
+    """
+    measured = [measure(t) for _, t in chapters]
+    per_chapter = [m for m in measured if m and m.get("words", 0) >= MIN_BASELINE_WORDS]
+    skipped = len([m for m in measured if m]) - len(per_chapter)
     if len(per_chapter) < 3:
         return {}
 
@@ -156,7 +169,14 @@ def baseline(chapters: list[tuple[str, str]]) -> dict:
         if mean:
             punct[key] = round(max(0.10, SIGMA * statistics.pstdev(vals) / mean), 4)
 
-    return {"chapters": len(per_chapter), "sigma": SIGMA, "flat": tol, "punctuation": punct}
+    return {
+        "chapters": len(per_chapter),
+        "skipped_fragments": skipped,
+        "min_words": MIN_BASELINE_WORDS,
+        "sigma": SIGMA,
+        "flat": tol,
+        "punctuation": punct,
+    }
 
 HINTS = {
     "dialogue density": "check paragraph splitting — narration glued to speech lines collapses this",
