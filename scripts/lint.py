@@ -95,6 +95,28 @@ def load_glossary(path: Path) -> list[dict]:
 # --------------------------------------------------------------------------
 # findings
 
+# Mapping to MQM (Multidimensional Quality Metrics), the standard error
+# typology for translation quality. This project's axes were derived
+# independently and are narrower — MQM scores general quality, and "does
+# this sound like the same translator" is not one of its dimensions. But
+# emitting MQM categories lets the output be read by anyone who already
+# works to that vocabulary, which is most of the localization industry.
+MQM = {
+    "dash": "Linguistic conventions / Punctuation",
+    "quotes-in-speech": "Linguistic conventions / Punctuation",
+    "quote-char": "Linguistic conventions / Punctuation",
+    "typography": "Linguistic conventions / Punctuation",
+    "spacing": "Linguistic conventions / Whitespace",
+    "doubled-word": "Linguistic conventions / Grammar",
+    "tag-case": "Linguistic conventions / Character encoding",
+    "dash-inline": "Linguistic conventions / Punctuation",
+    "continuation": "Linguistic conventions / Punctuation",
+    "glossary": "Terminology / Inconsistent with termbase",
+    "mixed-script": "Linguistic conventions / Character encoding",
+    "foreign-token": "Terminology / Untranslated",
+}
+
+
 class Finding:
     __slots__ = ("path", "line", "level", "code", "message", "span")
 
@@ -102,12 +124,15 @@ class Finding:
         self.path, self.line, self.level = path, line, level
         self.code, self.message, self.span = code, message, span
 
-    def render(self, root: Path) -> str:
+    def render(self, root: Path, mqm: bool = False) -> str:
         try:
             rel = self.path.relative_to(root)
         except ValueError:
             rel = self.path
-        head = f"{rel}:{self.line}: {self.level}: [{self.code}] {self.message}"
+        tag = f"[{self.code}]"
+        if mqm and self.code in MQM:
+            tag += f" [MQM: {MQM[self.code]}]"
+        head = f"{rel}:{self.line}: {self.level}: {tag} {self.message}"
         return f"{head}\n    {self.span}" if self.span else head
 
 
@@ -186,6 +211,50 @@ def check_paragraph(par: str, lineno: int, path: Path, cfg: dict, glossary: list
                         excerpt(par, idx))
             )
 
+    # -- spacing -----------------------------------------------------------
+    # Driven by the profile, because the convention is not universal: French
+    # requires a space before ; : ! ? where Russian and English forbid it.
+    sp = cfg.get("spacing", {})
+    allowed_before = set(sp.get("space_before", []))
+    for m in re.finditer(r"\s([,.;:!?])", par):
+        if m.group(1) not in allowed_before:
+            out.append(
+                Finding(path, lineno, "error", "spacing",
+                        f"space before {m.group(1)!r}", excerpt(par, m.start()))
+            )
+            break
+    for ch in sp.get("require_space_after", []):
+        for m in re.finditer(re.escape(ch) + r"(?=[^\s\d\"'»”\)\]])", par):
+            out.append(
+                Finding(path, lineno, "error", "spacing",
+                        f"no space after {ch!r}", excerpt(par, m.start()))
+            )
+            break
+
+    # -- doubled words -----------------------------------------------------
+    if sp.get("check_doubled_words", True):
+        for m in re.finditer(r"\b([^\W\d_]{3,})\s+\1\b", par, re.UNICODE | re.IGNORECASE):
+            out.append(
+                Finding(path, lineno, "warning", "doubled-word",
+                        f"{m.group(1)!r} repeated — a real repetition is possible, "
+                        f"so check rather than delete",
+                        excerpt(par, m.start()))
+            )
+            break
+
+    # -- dialogue tag capitalization ---------------------------------------
+    if is_dialogue and marker and dlg.get("lowercase_tag", False):
+        segments = par.split(marker)
+        if len(segments) >= 3 and segments[2].strip():
+            tag = segments[2].lstrip()
+            if tag and tag[0].isupper() and not tag.startswith(tuple(dlg.get("tag_exceptions", []))):
+                out.append(
+                    Finding(path, lineno, "info", "tag-case",
+                            "dialogue tag opens with a capital; the reference lowercases it "
+                            "(a proper noun here is legitimate — check)",
+                            excerpt(par, par.find(tag)))
+                )
+
     # -- script checks -----------------------------------------------------
     fl = cfg.get("foreign_layer", {})
     allow = {w.lower() for w in fl.get("allowlist", [])}
@@ -216,15 +285,36 @@ def check_paragraph(par: str, lineno: int, path: Path, cfg: dict, glossary: list
             )
 
     # -- glossary ----------------------------------------------------------
+    # Inflecting languages need the rejected variant matched in oblique cases
+    # too. Substring matching handles suffixing languages by accident — the
+    # nominative is usually a prefix of the inflected form — but it cannot
+    # express "these five forms are one term", and it breaks on stem
+    # alternation. Stem matching is the cheap improvement over that; a real
+    # morphological analyser would be better and is an open contribution.
+    morph = cfg.get("morphology", {})
     for entry in glossary:
         for variant in entry["reject"]:
-            for m in re.finditer(re.escape(variant), par):
+            pattern = entry.get("_patterns", {}).get(variant)
+            if pattern is None:
+                if morph.get("enabled", True) and len(variant) >= morph.get("min_stem", 5):
+                    trim = min(morph.get("max_suffix", 3), len(variant) - morph.get("min_stem", 5))
+                    stem = variant[: len(variant) - trim] if trim > 0 else variant
+                    pattern = re.compile(re.escape(stem) + r"[^\W\d_]{0,%d}" % morph.get("max_suffix", 3),
+                                         re.UNICODE)
+                else:
+                    pattern = re.compile(re.escape(variant))
+                entry.setdefault("_patterns", {})[variant] = pattern
+
+            for m in pattern.finditer(par):
                 # skip when the hit is really the canonical form containing it
-                if entry["canonical"] and entry["canonical"] in par[max(0, m.start() - 5) : m.end() + 5]:
+                window = par[max(0, m.start() - 5) : m.end() + 5]
+                if entry["canonical"] and entry["canonical"] in window:
                     continue
+                found = m.group()
+                suffix = f" (as {found!r})" if found.lower() != variant.lower() else ""
                 out.append(
                     Finding(path, lineno, "error", "glossary",
-                            f"{variant!r} -> canonical is {entry['canonical']!r}",
+                            f"{variant!r}{suffix} -> canonical is {entry['canonical']!r}",
                             excerpt(par, m.start()))
                 )
                 break
@@ -272,6 +362,9 @@ def main() -> int:
                     help="minimum level to report (default: info)")
     ap.add_argument("--glob", help="file pattern, overriding the profile's chapter_glob "
                                    "(the profile describes the reference, not the draft)")
+    ap.add_argument("--mqm", action="store_true",
+                    help="tag findings with MQM categories (the localization industry's "
+                         "standard error typology)")
     args = ap.parse_args()
 
     if not args.profile.exists():
@@ -300,7 +393,7 @@ def main() -> int:
     shown = [f for f in findings if rank[f.level] <= cutoff]
     root = args.target if args.target.is_dir() else args.target.parent
     for f in shown:
-        print(f.render(root))
+        print(f.render(root, mqm=args.mqm))
 
     counts = {lvl: sum(1 for f in findings if f.level == lvl) for lvl in rank}
     print(

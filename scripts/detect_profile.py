@@ -120,6 +120,38 @@ def detect(paragraphs: list[str], text: str, top_foreign: int) -> dict:
     uni, dots = text.count("…"), len(re.findall(r"(?<!\.)\.\.\.(?!\.)", text))
     ev["ellipsis"] = {"detected": "…" if uni >= dots else "...", "unicode": uni, "three_dots": dots}
 
+    # -- spacing -----------------------------------------------------------
+    # Not universal: French requires a space before ; : ! ? where Russian and
+    # English forbid it. Decide per character from what the corpus does.
+    space_before, spacing_counts = [], {}
+    for ch in (";", ":", "!", "?", ",", "."):
+        with_space = len(re.findall(r"[\s  ]" + re.escape(ch), text))
+        without = len(re.findall(r"\w" + re.escape(ch), text))
+        spacing_counts[ch] = {"with_space": with_space, "without": without}
+        if with_space > without * 0.5 and with_space > 20:
+            space_before.append(ch)
+    ev["spacing"] = {"space_before": space_before, "counts": spacing_counts}
+
+    require_after = [c for c in (",", ";", ":")
+                     if len(re.findall(re.escape(c) + r"\s", text)) >
+                     len(re.findall(re.escape(c) + r"[^\s\d]", text))]
+
+    # -- dialogue tag case -------------------------------------------------
+    lowercase_tag = False
+    tag_counts = {"lower": 0, "upper": 0}
+    if marker:
+        for p in paragraphs:
+            if not p.startswith(marker):
+                continue
+            segs = p.split(marker)
+            if len(segs) >= 3 and segs[2].strip():
+                first = segs[2].lstrip()[:1]
+                if first.isalpha():
+                    tag_counts["upper" if first.isupper() else "lower"] += 1
+    if tag_counts["lower"] + tag_counts["upper"] > 30:
+        lowercase_tag = tag_counts["lower"] > tag_counts["upper"] * 2
+    ev["dialogue_tag_case"] = {"detected_lowercase": lowercase_tag, "counts": tag_counts}
+
     # -- foreign tokens ----------------------------------------------------
     foreign: Counter[str] = Counter()
     for w in words:
@@ -156,10 +188,17 @@ def detect(paragraphs: list[str], text: str, top_foreign: int) -> dict:
             "quotes_in_speech": quotes_in_speech,
             "quote_pair": quote_pair,
             "no_dash_on_continuation": bool(marker) and marker in DASHES,
+            "lowercase_tag": lowercase_tag,
+            "tag_exceptions": [],
         },
         "typography": {
             "forbidden_quotes": forbidden_quotes,
             "forbidden_sequences": ["..."] if uni >= dots else [],
+        },
+        "spacing": {
+            "space_before": space_before,
+            "require_space_after": require_after,
+            "check_doubled_words": True,
         },
         "foreign_layer": {
             "main_script": main_script,

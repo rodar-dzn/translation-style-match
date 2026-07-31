@@ -34,9 +34,36 @@ author, not the translator.
 generate correctly, but the swarm has never been run on real material. It is
 the tool's central function and it has zero evidence behind it.
 
-The recall harness reports 18/18 on planted faults. That number is close to
-meaningless: the injector and the detector were written by the same person
-and agree by construction. It tests the plumbing, not the checking.
+### The recall harness, and how it was fixed
+
+The harness originally reported 18/18 on planted faults — a meaningless
+number, because every fault type mapped one-to-one onto a lint rule. The
+injector and the detector agreed by construction and the score could not
+fall.
+
+It was rebuilt with fault types drawn from the target-language reference
+files rather than from `lint.py`'s implementation, so the harness could
+fail. It did:
+
+```
+overall recall: 16/39 = 41%
+
+faults lint.py has a rule for      16/16   100%
+faults it has no rule for           0/23     0%
+```
+
+Twenty-three defects a reader would notice passed unremarked. Four rules
+were written — spacing before and after punctuation, doubled words,
+dialogue-tag capitalization — and the next run scored 39/39.
+
+**That clean score is not evidence of a good checker.** The harness decays:
+every fault it catches gets a rule written for it, the flag flips, and the
+score climbs back toward 100%. The number only means something again once
+new uncovered faults are added, which is why `inject_faults.py` carries an
+explicit note to add an uncovered fault type alongside every new lint rule.
+
+The point generalizes past this project: a QA measurement built from the
+checker's own rule set measures plumbing.
 
 ---
 
@@ -67,6 +94,12 @@ morphological awareness this project lacks.
 **This project loses that comparison directly.** `lint.py` exists because it
 had to be in-process and dependency-free, not because it is better.
 
+It has since gained stem-based glossary matching, so a rejected variant is
+caught in oblique cases rather than in the nominative alone. That narrows
+the gap for suffixing languages and does not close it: stem matching breaks
+on stem alternation and cannot express "these five forms are one term". A
+real morphological analyser remains the right answer.
+
 ### MQM
 
 Multidimensional Quality Metrics — the standardized error taxonomy for
@@ -74,11 +107,15 @@ translation quality: accuracy, fluency, terminology, style, locale
 convention, design. The professional standard, and the vocabulary a
 translation buyer already speaks.
 
-The six axes here are **not** mapped to it. That is a credibility cost: work
-that refuses the common vocabulary looks like work that did not check
-whether one existed. The defence is narrow but real — MQM scores general
-quality, and "does this sound like the same translator" is not one of its
-dimensions.
+`lint.py --mqm` now tags every finding with its MQM category, so output can
+be read by anyone already working to that vocabulary — which is most of the
+localization industry. The mapping lives at the top of `lint.py`.
+
+The six axes remain a narrower instrument than MQM rather than a rival to
+it: MQM scores general quality, and "does this sound like the same
+translator" is not one of its dimensions. But refusing the common
+vocabulary would have looked like work that never checked whether one
+existed.
 
 ### Stylometry
 
@@ -134,9 +171,9 @@ equivalent open collection is known to the author.
 1. **No validation of the main function.** The reviewer swarm has never run.
 2. **One language pair.** Delta's 13%-vs-97% result may not generalize.
 3. **No metric correlating with human judgment.** No COMET equivalent.
-4. **Glossary matching is literal substring matching.** It handles suffixing
-   languages by accident — an inflected form usually contains the nominative
-   as a prefix — and breaks on stem alternation. No morphological analysis.
+4. **Glossary matching is stem-based, not morphological.** Configurable trim
+   catches oblique cases in suffixing languages, but it breaks on stem
+   alternation and cannot express "these five forms are one term".
 5. **Bitext alignment is positional.** Gale-Church or hunalign would be
    correct; this narrows to a readable window and says so.
 6. **Japanese breaks the word-based metrics.** No word spaces means
@@ -149,7 +186,7 @@ equivalent open collection is known to the author.
 9. **No inter-annotator agreement measurement** for the swarm.
 10. **Single-corpus assumption.** Harmonizing several translators is a
     stated use case and is not supported.
-11. **No TM integration, no MQM mapping.** See above.
+11. **No TM integration.** MQM categories are emitted; TM is not touched.
 12. **Register collision is not measurable.** Keyness finds *what* a
     character says differently. A voice that collides two strata inside one
     line — the coarse mouth using formal vocabulary — is invisible to

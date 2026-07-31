@@ -125,14 +125,99 @@ def f_straight_quote(line: str, cfg: dict, rng, gloss) -> tuple[str, str] | None
     return line.replace(pair[0], '"', 1).replace(pair[1], '"', 1), "typographic -> straight quotes"
 
 
+# --------------------------------------------------------------------------
+# Faults the linter is NOT known to check.
+#
+# Every fault above maps one-to-one onto a lint rule, so a harness built only
+# from those is guaranteed to score 100% and measures nothing but the
+# plumbing. These are real mechanical defects drawn from the target-language
+# reference files rather than from lint.py's implementation, so the harness
+# can genuinely fail — and the misses are the informative part.
+
+
+def f_double_word(line: str, cfg, rng, gloss) -> tuple[str, str] | None:
+    words = [m for m in WORD.finditer(line) if len(m.group()) > 4]
+    if not words:
+        return None
+    m = rng.choice(words)
+    return line[: m.end()] + " " + m.group() + line[m.end() :], f"doubled word {m.group()!r}"
+
+
+def f_missing_space(line: str, cfg, rng, gloss) -> tuple[str, str] | None:
+    hits = [m for m in re.finditer(r"[,;:]\s", line)]
+    if not hits:
+        return None
+    m = rng.choice(hits)
+    return line[: m.start() + 1] + line[m.end() :], "missing space after punctuation"
+
+
+def f_space_before_punct(line: str, cfg, rng, gloss) -> tuple[str, str] | None:
+    hits = [m for m in re.finditer(r"\w([,.;:!?])", line)]
+    if not hits:
+        return None
+    m = rng.choice(hits)
+    return line[: m.start() + 1] + " " + line[m.start() + 1 :], "space before punctuation"
+
+
+def f_capitalized_tag(line: str, cfg, rng, gloss) -> tuple[str, str] | None:
+    """A dialogue tag capitalized where the convention requires lowercase."""
+    marker = cfg.get("dialogue", {}).get("marker")
+    if not marker or not line.lstrip().startswith(marker):
+        return None
+    parts = line.split(marker)
+    if len(parts) < 3 or not parts[2].strip():
+        return None
+    tag = parts[2].lstrip()
+    if not tag or not tag[0].islower():
+        return None
+    parts[2] = parts[2].replace(tag[0], tag[0].upper(), 1)
+    return marker.join(parts), "dialogue tag capitalized"
+
+
+def f_declension(line: str, cfg, rng, gloss) -> tuple[str, str] | None:
+    """A name left in the nominative where the sentence inflects it."""
+    hits = [e for e in gloss if e["canonical"] in line and len(e["canonical"]) > 4]
+    if not hits:
+        return None
+    e = rng.choice(hits)
+    idx = line.find(e["canonical"]) + len(e["canonical"])
+    if idx >= len(line) or not line[idx].isspace():
+        return None
+    return (line[:idx] + "а" + line[idx:],
+            f"spurious inflection on {e['canonical']!r}")
+
+
 FAULTS = {
-    "dash": (f_dash, "dialogue-typography"),
-    "quotes-in-speech": (f_quotes, "dialogue-typography"),
-    "typography": (f_ellipsis, "typography"),
-    "glossary": (f_glossary, "onomastics"),
-    "mixed-script": (f_mixed_script, "foreign-layer"),
-    "quote-char": (f_straight_quote, "typography"),
+    # covered by lint.py
+    "dash": (f_dash, "dialogue-typography", True),
+    "quotes-in-speech": (f_quotes, "dialogue-typography", True),
+    "typography": (f_ellipsis, "typography", True),
+    "glossary": (f_glossary, "onomastics", True),
+    "mixed-script": (f_mixed_script, "foreign-layer", True),
+    "quote-char": (f_straight_quote, "typography", True),
+    # Added while uncovered, then covered once the harness proved they were
+    # missed. Flags updated to match reality — see the note below.
+    "double-word": (f_double_word, "fluency", True),
+    "missing-space": (f_missing_space, "typography", True),
+    "space-before-punct": (f_space_before_punct, "typography", True),
+    "capitalized-tag": (f_capitalized_tag, "dialogue-typography", True),
+    "declension": (f_declension, "onomastics", False),
 }
+
+# NOTE ON DRIFT
+#
+# This harness decays. Every fault it catches gets a lint rule written for
+# it, and the flag flips to True — so the score climbs back toward 100% and
+# stops being informative. That is the harness working, not failing, but it
+# means a clean run is not evidence of a good checker.
+#
+# The first run here scored 41% overall and 0% on the five fault types with
+# no corresponding rule. Four rules were written; the next run scored 100%.
+# The number only means something again once new uncovered faults are added.
+#
+# So: when adding a check to lint.py, add a fault type it does NOT cover in
+# the same change. A harness that only tests what the checker already knows
+# measures plumbing.
 
 
 # --------------------------------------------------------------------------
@@ -168,13 +253,13 @@ def inject(args) -> int:
                 break
             rng.shuffle(kinds)
             for kind in kinds:
-                fn, axis = FAULTS[kind]
+                fn, axis, covered = FAULTS[kind]
                 result = fn(lines[idx], cfg, rng, gloss)
                 if result:
                     new, desc = result
                     key.append({
                         "file": f.name, "line": idx + 1, "code": kind,
-                        "axis": axis, "description": desc,
+                        "axis": axis, "covered": covered, "description": desc,
                         "original": lines[idx].strip()[:120],
                     })
                     lines[idx] = new
@@ -232,19 +317,40 @@ def score(args) -> int:
     caught = [f for f in faults if (f["file"], f["line"]) in found]
     missed = [f for f in faults if (f["file"], f["line"]) not in found]
 
+    # Split by whether a lint rule exists for the fault. Faults drawn from
+    # the linter's own rule set are a plumbing test and will score near 100%
+    # by construction. Faults with no corresponding rule are the informative
+    # half: they are what the checker does not know it cannot see.
+    known = [f for f in faults if f.get("covered")]
+    novel = [f for f in faults if not f.get("covered")]
+    hit = lambda fs: sum(1 for f in fs if (f["file"], f["line"]) in found)  # noqa: E731
+
+    print(f"overall recall: {len(caught)}/{len(faults)} = {len(caught) / len(faults):.0%}\n")
+    print(f"{'':<34}{'caught':>8}{'planted':>9}")
+    print("-" * 51)
+    if known:
+        print(f"{'faults lint.py has a rule for':<34}{hit(known):>8}{len(known):>9}"
+              f"   {hit(known) / len(known):.0%}")
+    if novel:
+        print(f"{'faults it has no rule for':<34}{hit(novel):>8}{len(novel):>9}"
+              f"   {hit(novel) / len(novel):.0%}")
+    print()
+
     by_axis: dict[str, list[int]] = {}
     for f in faults:
-        hit = 1 if (f["file"], f["line"]) in found else 0
         by_axis.setdefault(f["axis"], [0, 0])
-        by_axis[f["axis"]][0] += hit
+        by_axis[f["axis"]][0] += 1 if (f["file"], f["line"]) in found else 0
         by_axis[f["axis"]][1] += 1
 
-    print(f"recall: {len(caught)}/{len(faults)} = {len(caught) / len(faults):.0%}\n")
     print(f"{'axis':24} {'caught':>8} {'planted':>8}")
     print("-" * 42)
-    for axis, (hit, total) in sorted(by_axis.items()):
-        flag = "  <-- " if hit < total else ""
-        print(f"{axis:24} {hit:>8} {total:>8}{flag}")
+    for axis, (h, total) in sorted(by_axis.items()):
+        flag = "  <-- " if h < total else ""
+        print(f"{axis:24} {h:>8} {total:>8}{flag}")
+
+    if known and hit(known) == len(known) and novel and hit(novel) < len(novel):
+        print(f"\nThe first row is a plumbing test and says little. The second is the")
+        print(f"measurement: {len(novel) - hit(novel)} defect(s) a reader would notice passed unremarked.")
 
     if missed:
         print(f"\nmissed {len(missed)}:")
