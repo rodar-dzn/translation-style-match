@@ -83,12 +83,30 @@ gaps are terms the corpus does render, under a phrasing nobody predicted.
 python scripts/lint.py draft/ --profile profile.json --glossary GLOSSARY.md
 ```
 
-**4. Review.** Read for what tools cannot see, and diff the whole-draft
-statistics.
+**4. Review.** Diff the whole-draft statistics to find where to look, split
+the dialogue by speaker, then dispatch narrow reviewers.
 
 ```bash
 python scripts/fingerprint.py draft/ --compare work/ref-fingerprint.json
+python scripts/split_dialogue.py draft/ --profile profile.json \
+    --glossary GLOSSARY.md --out work/voices/
 ```
+
+`references/reviewers.md` holds the briefs — one per character voice, plus
+marker drift, calques, verse, glossary drift and narration. Narrow
+independent reviewers find more than one reviewer with a long checklist, and
+the overlap between them works as a confidence filter.
+
+Three rules make this worth doing rather than expensive:
+
+- **The corpus outranks the reviewer's taste.** A finding that cannot cite
+  what the reference translation does instead is an opinion, and it goes in
+  the bin however well argued.
+- **Gate the swarm** behind a clean lint and a read fingerprint. Run it on
+  the chapters that earned it, not on the whole book.
+- **Calibrate** by running the briefs against the reference translation
+  itself. Every finding is a false positive by construction, which tells you
+  which briefs over-fire.
 
 ---
 
@@ -100,6 +118,7 @@ python scripts/fingerprint.py draft/ --compare work/ref-fingerprint.json
 | `build_glossary.py` | candidate terms from the source; aligned target spans when a bitext exists; `--confirm` to check a single rendering |
 | `lint.py` | dash characters, quotes in speech, mixed-script words, unreviewed foreign tokens, glossary violations, typography |
 | `fingerprint.py` | dialogue density, sentence length and variance, punctuation rates, foreign-token density, lexical variety — and a diff against a reference |
+| `split_dialogue.py` | groups speech by speaker so each reviewer reads one voice, not the whole book; also generates the blind attribution test |
 
 Alignment in `build_glossary.py` is positional and approximate on purpose.
 It narrows the search to a readable handful of paragraph pairs; it does not
@@ -109,6 +128,11 @@ Fingerprint divergences are signals, not verdicts. Uniform sentence length
 is the classic signature of flattened register, and low lexical variety
 suggests vocabulary collapsing toward the neutral stratum — but both need a
 reading pass to confirm.
+
+Speaker attribution in `split_dialogue.py` is heuristic: it reads the
+narration tag for a known name and sends anything it cannot settle to
+`_unattributed.txt` with surrounding context, for a person to assign. The
+attribution rate measures the script, not the prose.
 
 ---
 

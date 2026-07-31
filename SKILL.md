@@ -93,24 +93,53 @@ noise masks real problems, and it is the layer readers notice first.
 
 ### Phase 4 — Review
 
-What the linter cannot see, you must read for. Take one chapter at a time.
-Read `references/register.md` for voice and `references/verse.md` for
-embedded poetry, then report by axis:
+What the linter cannot see must be read for. This is the phase that decides
+the outcome: phases 1–3 get a draft to *plausible*, and only this one gets it
+to *indistinguishable*.
 
-- Quote the offending span.
-- Name the axis it violates.
-- State what the reference corpus does instead, with a citation.
-- Propose a specific replacement, not a direction.
-
-Compare the draft's fingerprint against the reference's:
+First, find out where to look:
 
 ```bash
 python scripts/fingerprint.py draft/ --compare work/ref-fingerprint.json
 ```
 
-Large divergences in dialogue ratio, sentence length, or foreign-token
-density point at whole categories of problem that reading one chapter will
-not reveal.
+Divergences in dialogue ratio, sentence length, or foreign-token density
+point at whole categories of problem that reading one chapter never reveals.
+Uniform sentence length in particular is the classic signature of flattened
+register.
+
+Then split the dialogue, so each reviewer gets a compact input instead of the
+whole book:
+
+```bash
+python scripts/split_dialogue.py draft/ --profile profile.json \
+    --glossary GLOSSARY.md --out work/voices/
+```
+
+This also writes `blind-test.txt` and its key — the flattening test from
+`references/register.md`. Run it on the reference corpus too; the gap between
+the two scores is the size of the problem.
+
+Now dispatch reviewers. Read `references/reviewers.md` for the briefs: one
+per character voice, plus marker drift, calques, verse, glossary drift and
+narration. Narrow independent briefs find more than one reviewer with a long
+checklist, and their overlap doubles as a confidence filter.
+
+Three things govern this phase, and all three are in `reviewers.md`:
+
+- **The corpus outranks the reviewer's taste.** A finding that cannot say
+  what the reference translation does instead is an opinion. Drop it.
+- **Gate the swarm.** Dispatch only after the linter is clean, and only on
+  the chapters and axes the fingerprint flagged. Five reviewers over a whole
+  book is five times the spend for the same answer.
+- **Calibrate first.** Run the briefs against a chapter of the reference
+  translation itself. Everything reported is a false positive by
+  construction, which tells you which briefs over-fire.
+
+Report findings grouped by axis rather than by page — six findings on one
+axis mean one habit to change; six across six axes mean six separate fixes.
+
+In Claude Code, reviewers run as subagents, dispatched by the user.
 
 ## Working notes
 
