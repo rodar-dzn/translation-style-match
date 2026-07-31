@@ -143,3 +143,5 @@ there to keep it from drifting into one.
 
 MIT for the code. `references/` is CC-BY-4.0 — use the method, credit the
 source.
+
+Built by Darya Romanenkova.
