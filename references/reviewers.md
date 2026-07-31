@@ -42,6 +42,58 @@ Order matters. Each gate removes work from the expensive stage.
 Running the full swarm over an entire book, unfiltered, is how this technique
 becomes expensive without becoming useful.
 
+### Where the threshold comes from
+
+Not from a number someone chose. **The corpus states its own tolerance.**
+
+Chapters of a single book already differ from one another — a dialogue-heavy
+chapter and a descriptive one diverge on every metric without anything being
+wrong. That internal spread is the noise floor. A draft chapter sitting
+inside it tells you nothing; one outside it is worth reading.
+
+`fingerprint.py` computes this automatically when pointed at a chapter
+directory: it fingerprints each chapter separately, takes the coefficient of
+variation per metric, and writes tolerances at 2σ into `_tolerances` in the
+JSON. `--compare` then uses those instead of built-in guesses, and prints
+which it used.
+
+The consequence is worth internalizing: **a metric on which the corpus itself
+varies wildly is a metric you cannot use as a trigger.** If the reference
+translation's dialogue density swings by 90% between chapters, dialogue
+density will never usefully flag a draft. The corpus tells you which
+instruments have resolution, and this is not a fact you could have guessed.
+
+With fewer than three chapters no tolerance can be derived, and the built-in
+fallbacks are used — the tool says so rather than implying precision it does
+not have.
+
+### Cascade, not routing
+
+The tempting design is a router: inspect the chapter, decide which specialist
+it needs, dispatch only that one. It underperforms, because choosing the
+right specialist in advance requires knowing what is wrong — which is the
+question being asked.
+
+A cascade works better and is simpler:
+
+1. **Always on, cheap.** Glossary drift and marker drift run over the whole
+   draft. They are narrow, they need no per-chapter judgment, and they catch
+   things that are invisible to any single-chapter read.
+2. **Gated, expensive.** Per-character voice reviewers run where stage 1 or
+   the fingerprint pointed.
+3. **Escalation.** A stage-1 hit on a chapter promotes that chapter to
+   stage 2 automatically.
+
+### Always sample outside the signal
+
+Reserve a fixed share — a tenth of chapters, chosen at random — for full
+review regardless of what any metric says.
+
+Without it you only ever look where the instruments point, and the
+instruments' blind spots become permanent. The random sample is what finds
+defect classes the metrics were never able to see, and it is the only part of
+this design that addresses the problem of not knowing what you are missing.
+
 ---
 
 ## Brief 1 — Voice (one instance per character)

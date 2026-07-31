@@ -57,15 +57,17 @@ def dominant_script(words: list[str]) -> str:
     return max(counts, key=counts.get) if counts else "OTHER"
 
 
-def read_text(target: Path, glob: str) -> str:
+def read_files(target: Path, glob: str) -> list[tuple[str, str]]:
     if target.is_file():
-        return target.read_text(encoding="utf-8", errors="replace")
-    parts = [p.read_text(encoding="utf-8", errors="replace")
-             for p in sorted(target.rglob(glob)) if p.is_file()]
-    if not parts:
-        parts = [p.read_text(encoding="utf-8", errors="replace")
-                 for p in sorted(target.rglob("*.txt")) if p.is_file()]
-    return "\n\n".join(parts)
+        return [(target.stem, target.read_text(encoding="utf-8", errors="replace"))]
+    files = [p for p in sorted(target.rglob(glob)) if p.is_file()]
+    if not files:
+        files = [p for p in sorted(target.rglob("*.txt")) if p.is_file()]
+    return [(p.stem, p.read_text(encoding="utf-8", errors="replace")) for p in files]
+
+
+def read_text(target: Path, glob: str) -> str:
+    return "\n\n".join(t for _, t in read_files(target, glob))
 
 
 def measure(text: str) -> dict:
@@ -122,6 +124,40 @@ FLAT = [
     ("type_token_ratio", 0.20, "lexical variety"),
 ]
 
+# The fallbacks above are guesses. Real tolerances come from the corpus:
+# chapters of one book already vary, and that internal variation is the
+# noise floor. A draft chapter inside it tells you nothing; outside it,
+# something happened. SIGMA sets how far outside counts.
+SIGMA = 2.0
+
+
+def baseline(chapters: list[tuple[str, str]]) -> dict:
+    """Per-metric coefficient of variation across the corpus's own chapters."""
+    per_chapter = [measure(t) for _, t in chapters]
+    per_chapter = [m for m in per_chapter if m]
+    if len(per_chapter) < 3:
+        return {}
+
+    tol = {}
+    for key, fallback, _ in FLAT:
+        vals = [m[key] for m in per_chapter if m.get(key)]
+        if len(vals) < 3:
+            continue
+        mean = statistics.mean(vals)
+        if not mean:
+            continue
+        cv = statistics.pstdev(vals) / abs(mean)
+        tol[key] = round(max(0.05, SIGMA * cv), 4)
+
+    punct = {}
+    for key in per_chapter[0].get("punctuation_per_1k", {}):
+        vals = [m["punctuation_per_1k"].get(key, 0) for m in per_chapter]
+        mean = statistics.mean(vals)
+        if mean:
+            punct[key] = round(max(0.10, SIGMA * statistics.pstdev(vals) / mean), 4)
+
+    return {"chapters": len(per_chapter), "sigma": SIGMA, "flat": tol, "punctuation": punct}
+
 HINTS = {
     "dialogue density": "check paragraph splitting — narration glued to speech lines collapses this",
     "mean sentence length": "sentences may be tracing source syntax instead of the target's",
@@ -133,17 +169,29 @@ HINTS = {
 
 
 def compare(draft: dict, ref: dict) -> int:
-    print(f"{'metric':<28} {'reference':>12} {'draft':>12} {'delta':>10}")
-    print("-" * 66)
+    tolerances = ref.get("_tolerances") or {}
+    derived = tolerances.get("flat", {})
+    punct_tol = tolerances.get("punctuation", {})
+
+    if derived:
+        print(f"tolerances derived from {tolerances['chapters']} reference chapters "
+              f"at {tolerances['sigma']}σ of their own variation\n")
+    else:
+        print("tolerances are built-in guesses — rebuild the reference fingerprint\n"
+              "on a chapter directory to derive them from the corpus\n")
+
+    print(f"{'metric':<28} {'reference':>12} {'draft':>12} {'delta':>9} {'tol':>7}")
+    print("-" * 74)
     flagged = []
 
-    for key, tol, label in FLAT:
+    for key, fallback, label in FLAT:
         a, b = ref.get(key), draft.get(key)
         if a in (None, 0) or b is None:
             continue
+        tol = derived.get(key, fallback)
         delta = (b - a) / a
         mark = "  <-- " if abs(delta) > tol else ""
-        print(f"{label:<28} {a:>12} {b:>12} {delta:>+9.0%}{mark}")
+        print(f"{label:<28} {a:>12} {b:>12} {delta:>+8.0%} {tol:>6.0%}{mark}")
         if abs(delta) > tol:
             flagged.append(label)
 
@@ -154,13 +202,14 @@ def compare(draft: dict, ref: dict) -> int:
         if a == 0 and b == 0:
             continue
         if a == 0:
-            print(f"{key:<28} {a:>12} {b:>12} {'absent in ref':>10}  <-- ")
+            print(f"{key:<28} {a:>12} {b:>12} {'absent in ref':>16}  <-- ")
             flagged.append(key)
             continue
+        tol = punct_tol.get(key, 0.5)
         delta = (b - a) / a
-        mark = "  <-- " if abs(delta) > 0.5 else ""
-        print(f"{key:<28} {a:>12} {b:>12} {delta:>+9.0%}{mark}")
-        if abs(delta) > 0.5:
+        mark = "  <-- " if abs(delta) > tol else ""
+        print(f"{key:<28} {a:>12} {b:>12} {delta:>+8.0%} {tol:>6.0%}{mark}")
+        if abs(delta) > tol:
             flagged.append(key)
 
     if flagged:
@@ -186,10 +235,18 @@ def main() -> int:
         print(f"error: {args.target} not found", file=sys.stderr)
         return 1
 
-    fp = measure(read_text(args.target, args.glob))
+    chapters = read_files(args.target, args.glob)
+    fp = measure("\n\n".join(t for _, t in chapters))
     if not fp:
         print("error: no measurable text found", file=sys.stderr)
         return 1
+
+    tol = baseline(chapters)
+    if tol:
+        fp["_tolerances"] = tol
+    elif args.out:
+        print(f"note: {len(chapters)} chapter(s) — need 3+ to derive tolerances "
+              f"from corpus variation; built-in guesses will be used")
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

@@ -119,6 +119,7 @@ Three rules make this worth doing rather than expensive:
 | `lint.py` | dash characters, quotes in speech, mixed-script words, unreviewed foreign tokens, glossary violations, typography |
 | `fingerprint.py` | dialogue density, sentence length and variance, punctuation rates, foreign-token density, lexical variety — and a diff against a reference |
 | `split_dialogue.py` | groups speech by speaker so each reviewer reads one voice, not the whole book; also generates the blind attribution test |
+| `inject_faults.py` | plants known defects and scores what the checker caught — recall, the half that calibration does not measure |
 
 Alignment in `build_glossary.py` is positional and approximate on purpose.
 It narrows the search to a readable handful of paragraph pairs; it does not
