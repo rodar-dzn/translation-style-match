@@ -1,0 +1,30 @@
+# Reference corpora and working text never enter version control.
+# The skill ships a method; the books stay on your machine.
+
+corpus/
+work/
+draft/
+out/
+
+*.epub
+*.fb2
+*.mobi
+*.azw
+*.azw3
+*.pdf
+*.docx
+*.odt
+
+# Filled-in artifacts are project-specific, not part of the skill.
+/profile.json
+/GLOSSARY.md
+/STYLEGUIDE.md
+*-fingerprint.json
+candidates.md
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+Thumbs.db

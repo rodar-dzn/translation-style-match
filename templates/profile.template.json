@@ -1,0 +1,39 @@
+{
+  "_comment": "Copy to ./profile.json and fill from the corpus, not from assumption. Every value here is enforced by lint.py. The example values below are a Russian-target profile with a French foreign layer; replace them.",
+
+  "source_language": "en",
+  "target_language": "ru",
+  "chapter_glob": "*.md",
+
+  "dialogue": {
+    "_comment": "marker is the character that opens a speech paragraph. forbidden_markers are the confusable alternatives; count both in the corpus before choosing.",
+    "marker": "–",
+    "forbidden_markers": ["—", "--"],
+    "allow_forbidden_markers_inline": true,
+    "quotes_in_speech": false,
+    "quote_pair": ["«", "»"],
+    "no_dash_on_continuation": true
+  },
+
+  "typography": {
+    "forbidden_quotes": ["\"", "“", "”"],
+    "forbidden_sequences": ["...", " ,", " ."]
+  },
+
+  "foreign_layer": {
+    "_comment": "main_script is the target's own script; anything else is a foreign token. Set flag_unlisted_foreign once the allowlist is built from the corpus, or every foreign word will be reported.",
+    "main_script": "CYRILLIC",
+    "flag_unlisted_foreign": true,
+    "allowlist": [
+      "monsieur",
+      "mademoiselle",
+      "madame",
+      "oui",
+      "non",
+      "merci",
+      "chevalier"
+    ]
+  },
+
+  "glossary": "GLOSSARY.md"
+}

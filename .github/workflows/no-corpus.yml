@@ -1,0 +1,61 @@
+name: no-corpus
+
+# The skill ships a method, not a corpus. This job fails the build if
+# anyone commits book files or large blobs of prose, which is the one
+# mistake that turns a style-matching tool into a redistribution problem.
+
+on: [push, pull_request]
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: no ebook formats
+        run: |
+          hits=$(git ls-files | grep -Ei '\.(epub|fb2|mobi|azw3?|pdf|docx|odt)$' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::ebook/document files committed:"; echo "$hits"; exit 1
+          fi
+
+      - name: no large text blobs
+        run: |
+          fail=0
+          for f in $(git ls-files '*.md' '*.txt'); do
+            size=$(wc -c < "$f")
+            if [ "$size" -gt 61440 ]; then
+              echo "::error::$f is ${size} bytes — reference files stay under 60 KB"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: no corpus directories
+        run: |
+          hits=$(git ls-files | grep -E '^(corpus|work|draft|out)/' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::working directories committed:"; echo "$hits"; exit 1
+          fi
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: compile
+        run: python -m compileall -q scripts/
+
+      - name: smoke test
+        run: |
+          set -e
+          mkdir -p /tmp/t
+          printf 'Chapter one.\n\n\xe2\x80\x93 Not tonight, \xe2\x80\x93 she said.\n' > /tmp/t/a.txt
+          python scripts/fingerprint.py /tmp/t --out /tmp/fp.json
+          python scripts/build_glossary.py --source /tmp/t --out /tmp/c.md
+          cp templates/profile.template.json /tmp/p.json
+          python scripts/lint.py /tmp/t --profile /tmp/p.json --glossary /dev/null || true
+          test -s /tmp/fp.json && test -s /tmp/c.md
