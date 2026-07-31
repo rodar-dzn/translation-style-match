@@ -270,6 +270,8 @@ def main() -> int:
     ap.add_argument("--glossary", type=Path, default=Path("GLOSSARY.md"))
     ap.add_argument("--level", choices=("error", "warning", "info"), default="info",
                     help="minimum level to report (default: info)")
+    ap.add_argument("--glob", help="file pattern, overriding the profile's chapter_glob "
+                                   "(the profile describes the reference, not the draft)")
     args = ap.parse_args()
 
     if not args.profile.exists():
@@ -279,14 +281,14 @@ def main() -> int:
     cfg = json.loads(args.profile.read_text(encoding="utf-8"))
     glossary = load_glossary(args.glossary)
 
+    glob = args.glob or cfg.get("chapter_glob", "*.md")
     files = (
-        sorted(p for p in args.target.rglob(cfg.get("chapter_glob", "*.md")) if p.is_file())
+        sorted(p for p in args.target.rglob(glob) if p.is_file())
         if args.target.is_dir()
         else [args.target]
     )
     if not files:
-        print(f"error: no files matching {cfg.get('chapter_glob', '*.md')!r} under {args.target}",
-              file=sys.stderr)
+        print(f"error: no files matching {glob!r} under {args.target}", file=sys.stderr)
         return 2
 
     findings = []

@@ -124,6 +124,7 @@ def main() -> int:
     ap.add_argument("--trim", type=int, default=2, help="chars trimmed for stem matching (default 2)")
     ap.add_argument("--blind", type=int, default=60, help="lines in the blind test (0 to skip)")
     ap.add_argument("--seed", type=int, default=0, help="shuffle seed for a reproducible blind test")
+    ap.add_argument("--glob", help="file pattern, overriding the profile's chapter_glob")
     args = ap.parse_args()
 
     cfg = load_profile(args.profile)
@@ -143,7 +144,7 @@ def main() -> int:
         return 2
     cast = {stem(n, args.trim): n for n in names}
 
-    glob = cfg.get("chapter_glob", "*.md")
+    glob = args.glob or cfg.get("chapter_glob", "*.md")
     files = sorted(p for p in args.target.rglob(glob) if p.is_file()) if args.target.is_dir() else [args.target]
     if not files:
         print(f"error: no files matching {glob!r} under {args.target}", file=sys.stderr)
