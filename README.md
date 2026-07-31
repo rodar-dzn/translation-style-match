@@ -19,7 +19,7 @@ committed.
 ## Install
 
 ```bash
-git clone https://github.com/<you>/translation-style-match \
+git clone https://github.com/rodar-dzn/translation-style-match \
   ~/.claude/skills/translation-style-match
 ```
 
