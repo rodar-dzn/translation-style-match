@@ -147,7 +147,7 @@ attribution rate measures the script, not the prose.
 | `fr.md` | guillemets enclosing the exchange, **or** dashes | passé simple as register; narrow no-break spaces |
 | `de.md` | **quotation marks**, not dashes | Konjunktiv I for reported speech; modal particles |
 | `ja.md` | `「 」` | script mixing as register; pronouns as characterization |
-| `mg.md` | **unverified** — see the file | VOS order; voice system; *ohabolana* as register |
+| `mg.md` | typography **unverified** — see the file | VOS order; voice system and its extraction restriction; 1835 Bible as the elevated stratum |
 
 The set is deliberately typologically mixed. German marks dialogue with
 quotation marks, Japanese has no word spaces at all, and Malagasy is
