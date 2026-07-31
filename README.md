@@ -138,14 +138,42 @@ attribution rate measures the script, not the prose.
 
 ## Target languages
 
-`references/targets/ru.md` covers Russian in detail: dialogue dashes and
-which of the three confusable characters to use, quotation nesting,
-vocabulary strata, and the traps specific to translating into Russian from
-English.
+| File | Marks dialogue with | Notable |
+|---|---|---|
+| `ru.md` | dash — three confusable characters | Church Slavonic stratum; productive obscenity |
+| `pl.md` | dash, **no comma** before the tag | seven cases incl. vocative; aspect pairs |
+| `es.md` | raya, **no space** after it | `tú`/`vos`/`usted`/`vosotros`; inverted `¿¡` |
+| `it.md` | caporali **or** dashes | passato remoto is regional as well as literary |
+| `fr.md` | guillemets enclosing the exchange, **or** dashes | passé simple as register; narrow no-break spaces |
+| `de.md` | **quotation marks**, not dashes | Konjunktiv I for reported speech; modal particles |
+| `ja.md` | `「 」` | script mixing as register; pronouns as characterization |
+| `mg.md` | **unverified** — see the file | VOS order; voice system; *ohabolana* as register |
+
+The set is deliberately typologically mixed. German marks dialogue with
+quotation marks, Japanese has no word spaces at all, and Malagasy is
+verb-initial — if the six axes survive those, they generalize.
+
+Two honest limitations, documented in the files themselves:
+
+- **Shared script kills two linter checks.** English→French, →Spanish,
+  →German, →Italian and →Polish all put source and target in Latin script,
+  so `mixed-script` cannot fire and unlisted-foreign detection cannot tell a
+  retained word from an ordinary one. Set `flag_unlisted_foreign: false` and
+  treat the foreign layer as a reading axis.
+- **Japanese breaks the word-based metrics.** No spaces means no word
+  boundaries; `fingerprint.py`'s word counts do not transfer, and character
+  count with kanji ratio would be the right measure. That is an open
+  contribution.
+
+`mg.md` is marked partially unverified on purpose: the linguistic sections
+are solid, the typography section is a hypothesis to test against a corpus.
+A file that looks authoritative and guesses is exactly what this skill warns
+against, so it says so at the top instead.
 
 `references/targets/_template.md` is the form for adding another. Pull
-requests adding target languages are the most useful contribution — the
-core is language-agnostic and only these files are not.
+requests adding target languages are the most useful contribution — the core
+is language-agnostic and only these files are not. Wanted:
+Ukrainian, Portuguese, Turkish, Arabic, Chinese, Korean, Dutch, Czech.
 
 Every rule in a target file is a **default to check against**, never a
 specification to impose. Published translations deviate deliberately, and
